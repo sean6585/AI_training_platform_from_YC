@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DefectMaster Lite</title>
+<link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">DefectMaster<span>Lite</span></div>
+      <div class="tag">輕量版 · Jetson</div>
+    </div>
+    <nav id="nav">
+      <button class="nav-item active" data-page="dataset"><span class="ico">▣</span>資料集</button>
+      <button class="nav-item" data-page="label"><span class="ico">✎</span>標註工具</button>
+      <button class="nav-item" data-page="train"><span class="ico">▶</span>模型訓練</button>
+      <button class="nav-item" data-page="eval"><span class="ico">▤</span>模型評估</button>
+      <button class="nav-item" data-page="infer"><span class="ico">◎</span>推論測試</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="mem-title">記憶體</div>
+      <div class="mem-row"><span>Server</span><b id="memServer">–</b></div>
+      <div class="mem-row"><span>子行程</span><b id="memWorker">–</b></div>
+      <div class="mem-bar"><i id="memBar"></i></div>
+      <div class="mem-row"><span>系統可用</span><b id="memFree">–</b></div>
+      <div class="lic" id="licBox">授權檢查中…</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div id="crumb">資料集</div>
+      <div id="dsBadge" class="badge muted">尚未開啟資料集</div>
+    </header>
+    <div id="pages">
+
+      <!-- ============ 資料集 ============ -->
+      <section class="page active" id="page-dataset">
+        <div class="card">
+          <div class="card-head"><span class="ci">▣</span><h3>載入已標註資料集（data.yaml）</h3></div>
+          <p class="hint">已標好的 YOLO 資料集不必複製進本程式。選擇 data.yaml，Server 依 yaml 內的路徑就地讀取，訓練時也直接餵這份 yaml——全程零複製。</p>
+          <div class="row">
+            <input id="yamlPath" type="text" placeholder="例如：/home/user/datasets/PPE/data.yaml">
+            <button class="btn ghost" id="btnPickYaml">瀏覽</button>
+            <button class="btn green" id="btnOpenYaml">載入資料集</button>
+          </div>
+          <div class="note">
+            <div class="note-title">資料集資料夾結構</div>
+<pre>DATASET_ROOT/
+├── data.yaml
+├── images/
+│   ├── train/   img001.jpg  img002.jpg ...
+│   └── val/     img101.jpg ...
+└── labels/
+    ├── train/   img001.txt  img002.txt ...   # 檔名需與圖片相同
+    └── val/     img101.txt ...</pre>
+            <div class="note-title">data.yaml 內容</div>
+<pre>path: /home/user/datasets/PPE   # 可省略，省略時相對路徑以 yaml 所在位置為基準
+train: images/train
+val: images/val
+names:                          # 順序即類別編號 0, 1, 2 ...
+  0: Hardhat
+  1: NO-Hardhat
+  2: Safety-Vest</pre>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="ci">▤</span><h3>指定圖片資料夾（尚未標註）</h3></div>
+          <p class="hint">只有圖片、還沒標註時用這個。標註會即時寫成同名 .txt 存在圖片旁邊，並在資料夾內維護一份 data.yaml，下次可直接用上面的 yaml 載入。</p>
+          <div class="row">
+            <input id="folderPath" type="text" placeholder="例如：/home/user/datasets/PPE_raw">
+            <button class="btn ghost" id="btnPickFolder">瀏覽</button>
+            <button class="btn" id="btnOpenFolder">掃描並載入</button>
+          </div>
+        </div>
+
+        <div class="card" id="dsCard" hidden>
+          <div class="card-head"><span class="ci">✓</span><h3>目前資料集</h3></div>
+          <div class="stats" id="dsStats"></div>
+          <div class="warn" id="dsWarn" hidden></div>
+          <div class="note trainset-note" id="trainsetNote" hidden></div>
+          <div class="card-head sub"><h4>類別（順序即類別編號，只能新增或改名）</h4></div>
+          <div class="chips" id="classChips"></div>
+          <div class="row">
+            <input id="newClass" type="text" placeholder="New Class..." maxlength="40">
+            <button class="btn" id="btnAddClass">新增類別</button>
+            <button class="btn ghost" id="btnRestoreClass" hidden>復原上次刪除的類別</button>
+          </div>
+          <p class="hint" style="margin:6px 0 0">刪除類別會移除該類別的所有標註框，並把後面類別的編號整批往前挪；系統會先備份，可用上面的按鈕復原。</p>
+
+          <div class="card-head sub"><h4>訓練／驗證／測試切分</h4></div>
+          <p class="hint" style="margin:0 0 12px">對「已標註」影像做分層切分（同一類別盡量平均分配），產生獨立的 data.yaml，原始資料與 data.yaml 完全不會被改動。套用後訓練會自動改用這份切分。</p>
+          <div class="row tight split-row">
+            <label class="split-lab">Val <input type="number" id="splitVal" value="10" min="0" max="90" step="1">%</label>
+            <label class="split-lab">Test <input type="number" id="splitTest" value="5" min="0" max="90" step="1">%</label>
+            <span class="split-lab">Train <b id="splitTrainPct">85</b>%（自動）</span>
+            <button class="btn" id="btnApplySplit">套用切分</button>
+          </div>
+          <div class="note" id="splitStatus" hidden></div>
+        </div>
+
+        <div class="card" id="mergeCard" hidden>
+          <div class="card-head"><span class="ci">⇋</span><h3>合併外部資料集（Merge External Dataset）</h3></div>
+          <p class="hint">從其他來源（例如另一個 YOLO 模型輸出的標註）匯入影像與標籤。外部資料集的類別編號通常和目前這份不同，讀取 yaml 後可在下方逐一對應。合併時會把來源影像<b>整包複製</b>到 <code>DefectMaster_Output/.merged/</code> 下的新資料夾，只有重新編號後的 .txt 是新寫出的——<b>原始資料夾與其 data.yaml 完全不會被更動</b>，而且隨時可「移除此來源」還原。</p>
+          <div class="row">
+            <input id="mergeYamlPath" type="text" placeholder="要合併進來的外部 data.yaml">
+            <button class="btn ghost" id="btnPickMergeYaml">瀏覽</button>
+            <button class="btn" id="btnScanMerge">讀取 yaml</button>
+          </div>
+
+          <div id="mergeBody" hidden>
+            <div class="stats" id="mergeSummary"></div>
+            <div class="warn" id="mergeWarn" hidden></div>
+
+            <div class="card-head sub">
+              <h4>類別對應（外部 → 目前資料集）</h4>
+              <button class="btn ghost sm" id="btnRemapReset">重設為自動對應</button>
+            </div>
+            <div class="remap" id="remapRows"></div>
+
+            <div class="row tight merge-opts">
+              <span class="mo-label">影像進入</span>
+              <label class="chk"><input type="radio" name="mergeSplit" value="train" checked> 併入訓練集</label>
+              <label class="chk"><input type="radio" name="mergeSplit" value="train_val"> 訓練集＋驗證集</label>
+            </div>
+            <div class="row tight merge-opts">
+              <span class="mo-label">選項</span>
+              <label class="chk"><input type="checkbox" id="mergeBg"> 沒有標籤檔的影像也匯入（當背景圖）</label>
+              <label class="chk"><input type="checkbox" id="mergeRename"> 檔名重複時以來源前綴改名匯入（預設略過重複）</label>
+            </div>
+
+            <div class="row">
+              <button class="btn ghost" id="btnMergePreview">預覽合併結果</button>
+              <button class="btn green" id="btnMergeRun" disabled>執行合併</button>
+            </div>
+            <div class="note" id="mergePreview" hidden></div>
+          </div>
+
+          <div class="note" id="mergeSources" hidden></div>
+        </div>
+      </section>
+
+      <!-- ============ 標註 ============ -->
+      <section class="page" id="page-label">
+        <div class="label-wrap">
+          <div class="canvas-col">
+            <div class="canvas-head">
+              <div class="row tight">
+                <button class="btn ghost sm" id="prevImg">‹ 上一張</button>
+                <span id="imgPos" class="pos">–</span>
+                <button class="btn ghost sm" id="nextImg">下一張 ›</button>
+                <select id="classSel"></select>
+                <button class="btn ghost sm" id="btnBg">標為無瑕疵</button>
+                <button class="btn ghost sm" id="btnClear">清除本張</button>
+                <button class="btn ghost sm" id="btnCarryOver" disabled title="把上一張看過的圖片的框與類別帶進目前這張（適合連續影格）。若這張已經有標註框，會先確認才覆蓋。">沿用上一張</button>
+                <button class="btn red sm" id="btnRemoveImg" title="把這張圖片與它的標籤搬到 DefectMaster_Output/.removed_images/，不會進訓練，可復原">移除此圖</button>
+                <button class="btn ghost sm" id="btnTestImg" title="把這張圖片（連同標籤）搬到這個資料集專屬的測試圖片資料夾，不再參與訓練；不是刪除，可按「移回訓練集」搬回">移到測試資料夾</button>
+                <button class="btn ghost sm" id="btnRestoreImg" hidden>復原移除的圖片</button>
+                <button class="btn ghost sm" id="btnUnTest" hidden title="把最近一批移到測試圖片資料夾的圖片搬回原位，重新參與訓練">移回訓練集</button>
+                <span class="spacer"></span>
+                <button class="btn green sm" id="btnSave" disabled>儲存標註</button>
+                <button class="btn sm" id="btnSaveTrain" disabled title="存檔，並把這張圖與標籤「複製」到這個資料集專屬的訓練資料夾（原始資料集不動）。之後再修改這張、按一般「儲存標註」也會自動同步過去。">存到訓練資料夾</button>
+                <button class="btn red sm" id="btnUndo" disabled title="還原成上次儲存前的標籤">復原</button>
+              </div>
+              <div class="row tight ai-row">
+                <button class="btn sm ai" id="btnAiAssist" disabled title="用選定的模型偵測目前這張圖，把結果畫成藍色虛線的建議框（不會自動存檔）。若這張已經有標註框，會先確認才覆蓋。">🤖 AI 預標</button>
+                <label class="inline-lab">模型 <select id="aiModel"></select></label>
+                <label class="inline-lab">信心門檻 <input id="aiConf" type="range" min="0.05" max="0.95" step="0.05" value="0.40"><b id="aiConfVal">0.40</b></label>
+              </div>
+              <div class="fname" id="imgName">尚未開啟資料集</div>
+            </div>
+            <div class="stage" id="stage">
+              <canvas id="cv"></canvas>
+            </div>
+            <div class="canvas-foot">
+              <span>左鍵拖曳畫新框（可疊在其他框上面）· 右鍵點框選取、拖曳它本身可移動、拉四角改大小 · 左鍵點空白處結束編輯 · 選取後改上方下拉選單（或按數字鍵）可換類別 · Delete 刪除 · Ctrl+Z 退一步 · Ctrl+S 儲存 · 🤖 藍色虛線＝AI 預標、尚未人工調整</span>
+              <span id="saveState" class="save-state"></span>
+            </div>
+          </div>
+          <div class="labeltbl-col">
+            <div class="labeltbl-head"><h4>標註清單</h4><span id="lblCount" class="pos">–</span></div>
+            <div class="labeltbl-wrap">
+              <table class="labeltbl">
+                <thead><tr><th>No.</th><th>class</th><th>W×H(640)</th><th>% 面積</th></tr></thead>
+                <tbody id="lblTableBody"><tr class="empty"><td colspan="4">尚未開啟資料集</td></tr></tbody>
+              </table>
+            </div>
+            <p class="labeltbl-legend">⚠ 換算 640×640 輸入後，寬或高 &lt;10px 的框容易讓模型學到雜訊，畫面上標紅、儲存前會提醒。面積百分比僅供參考。點列可選取對應的框。🤖 是 AI 預標的框：移動、改大小或換類別後就視為已人工確認；存檔後一律轉成一般標註。</p>
+          </div>
+          <div class="thumb-col">
+            <div class="row tight">
+              <select id="filterSel">
+                <option value="all">全部</option>
+                <option value="unlabeled">未標註</option>
+                <option value="labeled">已標註</option>
+                <option value="not_in_train">未加入訓練</option>
+                <option value="in_train">已加入訓練</option>
+                <option value="infer_added">從推論加入</option>
+              </select>
+              <button class="btn ghost sm" id="pgPrev">‹</button>
+              <span id="pgInfo" class="pos">–</span>
+              <button class="btn ghost sm" id="pgNext">›</button>
+              <button class="btn ghost sm" id="btnSelMode">選取</button>
+            </div>
+            <div class="row tight sel-bar" id="selBar" hidden>
+              <label class="chk"><input type="checkbox" id="selAll"> 全選本頁 (<span id="selPageN">0</span>)</label>
+              <span class="spacer"></span>
+              <button class="btn ghost sm" id="btnTestSel" disabled title="把選取的圖片（連同標籤）搬到這個資料集專屬的測試圖片資料夾，不再參與訓練；不是刪除，可移回">移到測試資料夾 (0)</button>
+              <button class="btn red sm" id="btnDeleteSel" disabled>刪除已選 (0)</button>
+            </div>
+            <div class="thumbs" id="thumbs"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 訓練 ============ -->
+      <section class="page" id="page-train">
+        <div class="card">
+          <div class="card-head"><span class="ci">▶</span><h3>訓練設定</h3></div>
+          <div class="grid4">
+            <label>預訓練權重<select id="trModel"></select></label>
+            <label>Epochs<input id="trEpochs" type="number" value="50" min="1" max="1000"></label>
+            <label>Batch<input id="trBatch" type="number" value="4" min="1" max="64"></label>
+            <label>圖片尺寸<select id="trImgsz"><option>640</option><option>512</option><option>416</option><option>320</option></select></label>
+            <label>模型名稱<input id="trName" type="text" placeholder="留空自動命名"></label>
+            <label>DataLoader workers<input id="trWorkers" type="number" value="2" min="0" max="8"></label>
+            <label class="chk"><input type="checkbox" id="trAug"> 開啟基本資料增強</label>
+            <label class="chk" title="訓練完成後把 .pt 轉成 Jetson 專用的 TensorRT engine（FP16）"><input type="checkbox" id="trTrt"> 轉換 TensorRT（.engine, FP16）</label>
+          </div>
+          <div class="row">
+            <button class="btn green big" id="btnTrain">開始訓練</button>
+            <button class="btn red" id="btnStop" disabled>停止</button>
+            <span class="hint inline" id="trHint">訓練在獨立子行程執行，結束即釋放全部記憶體。勾了 TensorRT 會在訓練結束後另開行程轉檔，需要額外時間。</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="ci">▤</span><h3>訓練進度</h3><span id="trState" class="badge muted">idle</span></div>
+          <div class="prog"><i id="progBar"></i></div>
+          <div class="stats" id="trStats"></div>
+          <pre class="console" id="trLogs">尚未開始。</pre>
+        </div>
+      </section>
+
+      <!-- ============ 評估 ============ -->
+      <section class="page" id="page-eval">
+        <div class="card">
+          <div class="card-head"><span class="ci">▤</span><h3>模型評估</h3>
+            <select id="runSel"></select>
+            <button class="btn ghost sm" id="btnRunReload">重新整理</button>
+          </div>
+          <div class="stats" id="evalStats"></div>
+          <div class="plots" id="evalPlots"></div>
+        </div>
+
+        <div class="card" id="testEvalCard" hidden>
+          <div class="card-head"><span class="ci">☑</span><h3>在測試集上評估</h3></div>
+          <p class="hint">用訓練時完全沒看過的圖片驗證一個模型，不影響訓練：資料集頁套用切分產生的 test 集，或在標註頁手動移到測試圖片資料夾的圖片（只計已標註的）。</p>
+          <div class="row">
+            <select id="testEvalSrc"></select>
+            <select id="testEvalModel"></select>
+            <button class="btn green" id="btnTestEval">開始評估</button>
+            <span class="hint inline" id="testEvalHint">通常幾十秒到幾分鐘內完成，視測試集大小與硬體而定。</span>
+          </div>
+          <div class="stats" id="testEvalStats"></div>
+        </div>
+      </section>
+
+      <!-- ============ 推論 ============ -->
+      <section class="page" id="page-infer">
+        <div class="card">
+          <div class="card-head"><span class="ci">◎</span><h3>推論測試</h3></div>
+          <div class="row">
+            <select id="ifModel"></select>
+            <input id="ifPath" type="text" placeholder="圖片完整路徑">
+            <button class="btn ghost" id="btnPickImg">瀏覽圖片</button>
+            <button class="btn ghost" id="btnPickFromDs" title="從目前開啟的資料集挑一張">資料集取樣</button>
+            <button class="btn green" id="btnPredict">執行推論</button>
+            <button class="btn ghost" id="btnRelease">釋放模型記憶體</button>
+          </div>
+          <div class="row tight">
+            <label class="inline-lab">信心門檻 <input id="ifConf" type="range" min="0.05" max="0.95" step="0.05" value="0.25"><b id="ifConfVal">0.25</b></label>
+            <label class="chk" id="ifHalfWrap"><input type="checkbox" id="ifHalf"> FP16 半精度</label>
+            <span class="badge muted" id="ifEngineBadge" hidden>TensorRT engine</span>
+            <span class="hint inline" id="ifHint">推論子行程閒置 180 秒後自動結束並歸還記憶體。模型清單依訓練時間排序，最新的在最上面。</span>
+          </div>
+          <div class="stage infer" id="ifStage"><canvas id="ifCv"></canvas></div>
+          <div class="stats" id="ifStats"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="ci">▦</span><h3>批次推論</h3>
+            <span class="badge muted" id="bxBadge" hidden></span></div>
+          <p class="hint">一次推論整個資料夾（例如 test 資料夾），使用上方選的模型與信心門檻。
+            效果不好的圖按「加入訓練集」：會複製一份到目前資料集的訓練資料夾，並把模型的預測框帶進去當預標註，
+            再到「標註工具」頁（篩選「從推論加入」）修正。原始圖片不會被移動或修改。</p>
+          <div class="row">
+            <input id="bxPath" type="text" placeholder="圖片資料夾完整路徑（例如 …/images/test）">
+            <button class="btn ghost" id="btnBxPick">瀏覽資料夾</button>
+            <button class="btn green" id="btnBxRun">開始批次推論</button>
+            <button class="btn red" id="btnBxStop" hidden>停止</button>
+          </div>
+          <div class="bx-target" id="bxTarget"></div>
+          <div class="prog" id="bxProgWrap" hidden><i id="bxProg"></i></div>
+          <div class="stats" id="bxStats"></div>
+          <div class="row tight" id="bxToolbar" hidden>
+            <select id="bxFilter">
+              <option value="all">全部</option>
+              <option value="none">沒有偵測到</option>
+              <option value="low">含低信心框（&lt; 50%）</option>
+              <option value="added">已加入訓練集</option>
+              <option value="error">推論失敗</option>
+            </select>
+            <select id="bxSort">
+              <option value="name">依檔名</option>
+              <option value="minconf">最低信心優先</option>
+              <option value="count">偵測數少→多</option>
+            </select>
+            <span class="spacer"></span>
+            <button class="btn ghost sm" id="bxPrev">‹</button>
+            <span id="bxPgInfo" class="pos">–</span>
+            <button class="btn ghost sm" id="bxNext">›</button>
+          </div>
+          <div class="bx-grid" id="bxGrid"></div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+<div class="modal" id="fsModal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="fsTitle">選擇檔案</h3>
+      <button class="btn ghost sm" id="fsClose">關閉</button>
+    </div>
+    <div class="fs-bar">
+      <button class="btn ghost sm" id="fsUp" title="上一層">↑ 上一層</button>
+      <input type="text" id="fsPath" placeholder="輸入路徑後按 Enter">
+      <button class="btn ghost sm" id="fsGo">前往</button>
+    </div>
+    <div class="fs-shortcuts" id="fsShortcuts"></div>
+    <div class="fs-crumbs" id="fsCrumbs"></div>
+    <div class="fs-body">
+      <div class="fs-col">
+        <div class="fs-col-head">資料夾</div>
+        <div class="fs-list" id="fsDirs"></div>
+      </div>
+      <div class="fs-col">
+        <div class="fs-col-head" id="fsFilesHead">檔案</div>
+        <div class="fs-list" id="fsFiles"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <div class="fs-selected" id="fsSelected">尚未選擇</div>
+      <button class="btn green" id="fsChoose" disabled>選擇</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="cfModal" hidden>
+  <div class="modal-box cf-box">
+    <div class="modal-head"><h3 id="cfTitle">確認</h3></div>
+    <div class="cf-body" id="cfBody"></div>
+    <input type="text" id="cfInput" hidden>
+    <label class="cf-dontask" id="cfDontAskWrap" hidden><input type="checkbox" id="cfDontAsk"> 不再顯示這個提示</label>
+    <div class="modal-foot cf-foot">
+      <button class="btn ghost" id="cfCancel">取消</button>
+      <button class="btn green" id="cfOk">確定</button>
+    </div>
+  </div>
+</div>
+</div>
+<script src="/web/app.js"></script>
+</body>
+</html>

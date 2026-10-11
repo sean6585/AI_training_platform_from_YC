@@ -1,0 +1,9 @@
+{
+  "port": 8002,
+  "host": "127.0.0.1",
+  "infer_idle_seconds": 180,
+  "open_browser": true,
+  "default_yaml": "/home/mic-711on/Desktop/yolo-ppe-docker/dataset/construction safety.v2-release.yolov11/data.yaml",
+  "file_picker": "native",
+  "native_dialog_size": "1600x1000"
+}

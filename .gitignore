@@ -1,0 +1,10 @@
+# 這台機器專屬的授權碼（MAC 綁定）
+license.txt
+# 範例／訓練資料集（太大，且可重新下載）
+dataset/
+# Python 快取
+__pycache__/
+*.pyc
+# patch 殘留
+*.orig
+*.rej
